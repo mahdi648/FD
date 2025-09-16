@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+# nmap-toolkit.sh
+# Simple, safe wrapper around nmap for authorized scanning
+# Usage: ./nmap-toolkit.sh TARGET MODE [OPTIONS]
+# Modes: discovery | quick | full | svc-os | nse-vuln
+# Example: ./nmap-toolkit.sh 192.168.1.0/24 discovery
+
+set -e
+
+# Config (edit if needed)
+OUTDIR="./nmap-results"
+DEFAULT_T="-T2"           # conservative by default (0..5). 2 = polite
+DEFAULT_PORTS="1-1024"    # used for 'quick' change as needed
+FULL_PORTS="1-65535"
+NSE_VULN_SCRIPTS="vuln"
+
+usage(){
+  cat <<USAGE
+Usage: $0 TARGET MODE [options]
+Modes:
+  discovery    - ping scan (nmap -sn)
+  quick        - quick port scan (common ports)
+  full         - full TCP port scan (1-65535)
+  svc-os       - service/version detection + OS detection (-sV -O)
+  nse-vuln     - run NSE vuln scripts (may be intrusive)
+Options:
+  -o PREFIX    - output filename prefix (default timestamp)
+  -t T         - timing template (0..5). default $DEFAULT_T
+  -p PORTS     - ports range (for quick/full). default $DEFAULT_PORTS
+Example:
+  $0 192.168.1.0/24 discovery
+USAGE
+  exit 1
+}
+
+# simple arg parse
+if [ $# -lt 2 ]; then usage; fi
+TARGET="$1"
+MODE="$2"
+shift 2
+
+OUTPREFIX=""
+TIMING="$DEFAULT_T"
+PORTS="$DEFAULT_PORTS"
+
+while getopts "o:t:p:h" opt; do
+  case $opt in
+    o) OUTPREFIX="$OPTARG" ;;
+    t) TIMING="-T$OPTARG" ;;
+    p) PORTS="$OPTARG" ;;
+    h) usage ;;
+    *) usage ;;
+  esac
+done
+
+timestamp() { date +"%Y%m%d-%H%M%S"; }
+
+# ensure nmap installed
+command -v nmap >/dev/null 2>&1 || { echo "nmap غير موجود. ثبته أولاً (مثلاً: sudo apt install nmap)."; exit 2; }
+
+# safety confirmation
+echo "تحذير: لا تقم بفحص أي شبكة بدون إذن صريح."
+read -p "هل لديك إذن صريح لفحص الهدف $TARGET ؟ اكتب YES للموافقة: " CONF
+if [ "$CONF" != "YES" ]; then
+  echo "لم تؤكد الإذن. إلغاء." ; exit 3
+fi
+
+# prepare outputs
+mkdir -p "$OUTDIR"
+if [ -z "$OUTPREFIX" ]; then
+  PREFIX="$(timestamp)-$(echo $TARGET | tr '/' '_' | tr ':' '_')"
+else
+  PREFIX="$OUTPREFIX"
+fi
+OUT_BASE="$OUTDIR/$PREFIX"
+
+# build common args
+COMMON="-oA $OUT_BASE --host-timeout 30m $TIMING"
+echo "نتائج ستخزن في: $OUT_BASE.{nmap,xml,gnmap}"
+
+case "$MODE" in
+  discovery)
+    echo "تشغيل discovery (ping scan) على $TARGET"
+    nmap $COMMON -sn "$TARGET"
+    ;;
+  quick)
+    echo "تشغيل quick port scan على $TARGET (ports: $PORTS)"
+    nmap $COMMON -p "$PORTS" --open --reason --max-retries 2 "$TARGET"
+    ;;
+  full)
+    echo "تشغيل full TCP port scan على $TARGET (هذا قد يستغرق وقتاً)"
+    sudo nmap $COMMON -p "$FULL_PORTS" -sS --max-retries 3 --min-rate 50 "$TARGET"
+    ;;
+  svc-os)
+    echo "تشغيل service/version + OS detection على $TARGET"
+    sudo nmap $COMMON -sV -O --osscan-guess --version-intensity 3 "$TARGET"
+    ;;
+  nse-vuln)
+    echo "تشغيل NSE vuln scripts على $TARGET (قد يكون متطفلاً). تأكد من الإذن!"
+    sudo nmap $COMMON --script "$NSE_VULN_SCRIPTS" -p "$PORTS" "$TARGET"
+    ;;
+  *)
+    echo "وضع غير معروف: $MODE"
+    usage
+    ;;
+esac
+
+echo "انتهى الفحص. ملفات الخرج:"
+ls -1 "${OUT_BASE}."*
