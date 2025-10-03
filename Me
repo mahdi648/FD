@@ -1,0 +1,63 @@
+#!/bin/bash
+# سكربت رفع موقع الكتاب على GitHub
+# تشغيل: ./deploy_book.sh <GITHUB_USERNAME> <REPO_NAME>
+
+set -e
+
+if [ $# -lt 2 ]; then
+  echo "الاستخدام: ./deploy_book.sh <GITHUB_USERNAME> <REPO_NAME>"
+  exit 1
+fi
+
+USERNAME=$1
+REPO=$2
+REPO_URL="https://github.com/$USERNAME/$REPO.git"
+BRANCH="main"
+
+# --- إعداد المشروع ---
+mkdir -p $REPO
+cd $REPO
+
+# إنشاء index.html لو مش موجود
+if [ ! -f "index.html" ]; then
+  cat > index.html <<'EOF'
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>الكتاب المدرسي - الثاني المتوسط</title>
+  <style>
+    body { margin:0; padding:0; font-family: sans-serif; background:#f0f0f0; }
+    header { background:#333; color:white; padding:10px; text-align:center; }
+    iframe { width:100%; height:95vh; border:none; }
+  </style>
+</head>
+<body>
+  <header>اللغة العربية - الثاني المتوسط (ج1)</header>
+  <iframe src="book.pdf"></iframe>
+</body>
+</html>
+EOF
+fi
+
+# ضع نسخة book.pdf في نفس المجلد قبل التشغيل
+if [ ! -f "book.pdf" ]; then
+  echo "⚠️ ضَع الملف book.pdf بجانب السكربت أو انسخه هنا قبل الرفع!"
+  exit 1
+fi
+
+# --- Git ---
+git init
+git branch -M $BRANCH
+git add .
+git commit -m "رفع الموقع (index.html + book.pdf)"
+
+# إضافة الريموت
+git remote add origin $REPO_URL || git remote set-url origin $REPO_URL
+
+# رفع إلى GitHub
+git push -u origin $BRANCH --force
+
+echo "✅ تم رفع الموقع على GitHub:"
+echo "   👉 $REPO_URL"
+echo "بعدها اربطه بـ Vercel من https://vercel.com/new"
